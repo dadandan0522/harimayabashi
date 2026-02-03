@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>シューティングゲーム</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  body { margin: 0; background: black; }
+  canvas { display: block; margin: auto; background: #111; }
+</style>
+</head>
+<body>
+
+<canvas id="game" width="400" height="600"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+// 効果音
+const shotSound = new Audio("https://actions.google.com/sounds/v1/weapons/laser_shoot.ogg");
+const hitSound  = new Audio("https://actions.google.com/sounds/v1/impacts/crash.ogg");
+const boomSound = new Audio("https://actions.google.com/sounds/v1/explosions/explosion.ogg");
+
+// プレイヤー
+const player = { x: 180, y: 520, w: 40, h: 40, life: 3 };
+
+// 状態
+let bullets = [];
+let enemyBullets = [];
+let enemies = [];
+let boss = null;
+
+let score = 0;
+let highScore = localStorage.getItem("highScore") || 0;
+let enemySpeed = 2;
+let gameOver = false;
+
+// 連射制限
+let canShoot = true;
+const shootInterval = 300;
+
+// キー入力
+const keys = {};
+document.addEventListener("keydown", e => keys[e.code] = true);
+document.addEventListener("keyup", e => keys[e.code] = false);
+
+// スマホ操作
+canvas.addEventListener("touchmove", e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  player.x = e.touches[0].clientX - rect.left - player.w / 2;
+});
+
+// 自機弾
+function shoot() {
+  if (gameOver || !canShoot) return;
+
+  bullets.push({ x: player.x + 18, y: player.y, r: 5 });
+  shotSound.currentTime = 0;
+  shotSound.play();
+
+  canShoot = false;
+  setTimeout(() => canShoot = true, shootInterval);
+}
+
+// 敵生成
+setInterval(() => {
+  if (!gameOver && !boss) {
+    enemies.push({
+      x: Math.random() * 360,
+      y: -40,
+      w: 40,
+      h: 40,
+      cool: Math.random() * 60
+    });
+    enemySpeed += 0.02;
+  }
+}, 1000);
+
+// リスタート
+function restartGame() {
+  player.x = 180;
+  player.life = 3;
+  bullets = [];
+  enemyBullets = [];
+  enemies = [];
+  boss = null;
+  score = 0;
+  enemySpeed = 2;
+  gameOver = false;
+}
+
+// 更新
+function update() {
+  if (gameOver) return;
+
+  if (keys["ArrowLeft"]) player.x -= 5;
+  if (keys["ArrowRight"]) player.x += 5;
+
+  bullets.forEach(b => b.y -= 5);
+  bullets = bullets.filter(b => b.y > 0);
+
+  enemyBullets.forEach(b => b.y += 6);
+  enemyBullets = enemyBullets.filter(b => b.y < 600);
+
+  enemies.forEach(e => {
+    e.y += enemySpeed;
+    e.cool--;
+    if (e.cool <= 0) {
+      enemyBullets.push({ x: e.x + e.w / 2, y: e.y + e.h });
+      e.cool = 80 + Math.random() * 40;
+    }
+  });
+
+  // ボス出現
+  if (score >= 200 && boss === null) {
+    boss = { x: 120, y: 50, w: 160, h: 80, hp: 30, dir: 1, cool: 40 };
+  }
+
+  // ボス行動
+  if (boss) {
+    boss.x += 2 * boss.dir;
+    if (boss.x <= 0 || boss.x + boss.w >= canvas.width) boss.dir *= -1;
+
+    boss.cool--;
+    if (boss.cool <= 0) {
+      enemyBullets.push({ x: boss.x + boss.w / 2, y: boss.y + boss.h });
+      boss.cool = 40;
+    }
+  }
+
+  // 自機被弾
+  enemyBullets.forEach((b, bi) => {
+    if (
+      b.x > player.x &&
+      b.x < player.x + player.w &&
+      b.y > player.y &&
+      b.y < player.y + player.h
+    ) {
+      enemyBullets.splice(bi, 1);
+      player.life--;
+      hitSound.play();
+      if (player.life <= 0) {
+        gameOver = true;
+        boomSound.play();
+        if (score > highScore) {
+          highScore = score;
+          localStorage.setItem("highScore", highScore);
+        }
+      }
+    }
+  });
+
+  // 敵撃破
+  enemies.forEach((e, ei) => {
+    bullets.forEach((b, bi) => {
+      if (
+        b.x > e.x &&
+        b.x < e.x + e.w &&
+        b.y > e.y &&
+        b.y < e.y + e.h
+      ) {
+        enemies.splice(ei, 1);
+        bullets.splice(bi, 1);
+        score += 10;
+        boomSound.currentTime = 0;
+        boomSound.play();
+      }
+    });
+  });
+
+  // ボス被弾
+  if (boss) {
+    bullets.forEach((b, bi) => {
+      if (
+        b.x > boss.x &&
+        b.x < boss.x + boss.w &&
+        b.y > boss.y &&
+        b.y < boss.y + boss.h
+      ) {
+        bullets.splice(bi, 1);
+        boss.hp--;
+        boomSound.currentTime = 0;
+        boomSound.play();
+        if (boss.hp <= 0) {
+          boss = null;
+          score += 200;
+        }
+      }
+    });
+  }
+}
+
+// 描画
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = "cyan";
+  ctx.fillRect(player.x, player.y, player.w, player.h);
+
+  ctx.fillStyle = "yellow";
+  bullets.forEach(b => {
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  ctx.fillStyle = "orange";
+  enemyBullets.forEach(b => ctx.fillRect(b.x - 3, b.y, 6, 10));
+
+  ctx.fillStyle = "red";
+  enemies.forEach(e => ctx.fillRect(e.x, e.y, e.w, e.h));
+
+  if (boss) {
+    ctx.fillStyle = "purple";
+    ctx.fillRect(boss.x, boss.y, boss.w, boss.h);
+    ctx.fillStyle = "white";
+    ctx.fillRect(50, 90, 300, 10);
+    ctx.fillStyle = "red";
+    ctx.fillRect(50, 90, 300 * (boss.hp / 30), 10);
+  }
+
+  ctx.fillStyle = "white";
+  ctx.font = "16px sans-serif";
+  ctx.fillText(`SCORE: ${score}`, 10, 20);
+  ctx.fillText(`LIFE: ${player.life}`, 10, 40);
+  ctx.fillText(`HI: ${highScore}`, 10, 60);
+
+  if (gameOver) {
+    ctx.font = "28px sans-serif";
+    ctx.fillText("GAME OVER", 90, 280);
+    ctx.font = "16px sans-serif";
+    ctx.fillText("TAP or CLICK TO RESTART", 80, 320);
+  }
+}
+
+// ループ
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+
+// 操作
+document.addEventListener("keydown", e => {
+  if (e.code === "Space") shoot();
+});
+canvas.addEventListener("touchstart", () => {
+  if (gameOver) restartGame();
+  else shoot();
+});
+canvas.addEventListener("click", () => {
+  if (gameOver) restartGame();
+});
+</script>
+
+</body>
+</html>
